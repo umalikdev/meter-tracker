@@ -1,0 +1,91 @@
+@page "/meter/{MeterId}"
+@inject SupabaseService Supabase
+
+<PageTitle>@(_meter?.Name ?? "Meter") — History</PageTitle>
+
+<a class="back-link" href="">← Back to all meters</a>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="error-banner">@_error</div>
+}
+
+@if (_meter is null)
+{
+    <p class="empty-state">Loading…</p>
+}
+else
+{
+    <h2>@_meter.Name</h2>
+
+    <div class="units-highlight" style="max-width:320px;">
+        <div>
+            <div class="num">@((_meter.CurrentReading - _meter.PreviousReading).ToString("0.##"))</div>
+            <div class="unit-label">units consumed since last reading</div>
+        </div>
+    </div>
+
+    <div class="reading-row" style="max-width:320px;">
+        <span class="label">Current reading</span>
+        <span class="value">@_meter.CurrentReading.ToString("0.##")</span>
+    </div>
+
+    <div class="section-title">Full history</div>
+
+    @if (_history is null)
+    {
+        <p class="empty-state">Loading history…</p>
+    }
+    else if (_history.Count == 0)
+    {
+        <p class="empty-state">No updates logged yet for this meter.</p>
+    }
+    else
+    {
+        <table class="history">
+            <thead>
+                <tr>
+                    <th>Date / Time</th>
+                    <th>Updated By</th>
+                    <th>Previous</th>
+                    <th>New</th>
+                    <th>Units Consumed</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var log in _history)
+                {
+                    <tr>
+                        <td>@(log.UpdatedAt?.ToLocalTime().ToString("dd MMM yyyy, HH:mm") ?? "—")</td>
+                        <td>@(string.IsNullOrWhiteSpace(log.UpdatedBy) ? "—" : log.UpdatedBy)</td>
+                        <td>@log.PreviousReading.ToString("0.##")</td>
+                        <td>@log.NewReading.ToString("0.##")</td>
+                        <td><span class="badge">@log.UnitsConsumed.ToString("0.##")</span></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+}
+
+@code {
+    [Parameter]
+    public string MeterId { get; set; } = "";
+
+    private Meter? _meter;
+    private List<ReadingLog>? _history;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _meter = await Supabase.GetMeterAsync(MeterId);
+            _history = await Supabase.GetHistoryAsync(MeterId);
+        }
+        catch (Exception ex)
+        {
+            _error = "Couldn't load this meter's history: " + ex.Message;
+        }
+    }
+}

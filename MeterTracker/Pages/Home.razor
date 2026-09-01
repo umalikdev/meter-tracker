@@ -1,0 +1,186 @@
+@page "/"
+@inject SupabaseService Supabase
+
+<PageTitle>Meter Tracker</PageTitle>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="error-banner">@_error</div>
+}
+
+@if (_meters is null)
+{
+    <p class="empty-state">Loading meters…</p>
+}
+else if (_meters.Count == 0)
+{
+    <div class="empty-state">
+        <p>No meters yet.</p>
+        <a class="btn btn-primary" href="add-meter">+ Add your first meter</a>
+    </div>
+}
+else
+{
+    <div class="meter-grid">
+        @foreach (var meter in _meters)
+        {
+            <div class="meter-card">
+                <h3>@meter.Name</h3>
+                <div class="updated-meta">
+                    Last updated @FormatWhen(meter.LastUpdatedAt) @(string.IsNullOrWhiteSpace(meter.LastUpdatedBy) ? "" : $"by {meter.LastUpdatedBy}")
+                </div>
+
+                <div class="units-highlight">
+                    <div>
+                        <div class="num">@((meter.BaseReading - meter.CurrentReading).ToString("0.##"))</div>
+                        <div class="unit-label">units consumed since last reading</div>
+                    </div>
+                </div>
+
+                <div class="reading-row">
+                    <span class="label">Previous reading</span>
+                    <span class="value">@meter.PreviousReading.ToString("0.##")</span>
+                </div>
+                <div class="reading-row">
+                    <span class="label">Current reading</span>
+                    <span class="value">@meter.CurrentReading.ToString("0.##")</span>
+                </div>
+
+                <div class="card-actions">
+                    <button class="btn btn-primary" @onclick="() => OpenUpdateModal(meter)">Update Reading</button>
+                    <a class="btn btn-outline" href="@($"meter/{meter.Id}")">History</a>
+                </div>
+            </div>
+        }
+
+        <a href="add-meter" class="add-meter-card">+ Add another meter</a>
+    </div>
+}
+
+@if (_modalMeter is not null)
+{
+    <div class="modal-backdrop" @onclick="CloseModal">
+        <div class="modal-box" @onclick:stopPropagation="true">
+            <h3>Update "@_modalMeter.Name"</h3>
+
+            <div class="form-group">
+                <label>New reading</label>
+                <input type="number" step="any" @bind="_newReadingInput" placeholder="@_modalMeter.CurrentReading.ToString("0.##")" />
+                <div class="form-hint">Current reading is @_modalMeter.CurrentReading.ToString("0.##")</div>
+            </div>
+
+            <div class="form-group">
+                <label>Your name</label>
+                <select @bind="_updatedByInput">
+                    <option value="">-- Select your name --</option>
+                    @foreach (var n in FamilyMembers.Names)
+                    {
+                        <option value="@n">@n</option>
+                    }
+                </select>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_modalError))
+            {
+                <div class="error-banner">@_modalError</div>
+            }
+
+            <div class="card-actions">
+                <button class="btn btn-primary" @onclick="SaveReading" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
+                <button class="btn btn-outline" @onclick="CloseModal">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Meter>? _meters;
+    private string? _error;
+
+    private Meter? _modalMeter;
+    private string _newReadingInput = "";
+    private string _updatedByInput = "";
+    private string? _modalError;
+    private bool _saving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMeters();
+    }
+
+    private async Task LoadMeters()
+    {
+        try
+        {
+            _error = null;
+            _meters = await Supabase.GetMetersAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = "Couldn't load meters. Check your Supabase URL/key in SupabaseConfig.cs. (" + ex.Message + ")";
+            _meters = new();
+        }
+    }
+
+    private void OpenUpdateModal(Meter meter)
+    {
+        _modalMeter = meter;
+        _newReadingInput = "";
+        _updatedByInput = "";
+        _modalError = null;
+    }
+
+    private void CloseModal()
+    {
+        _modalMeter = null;
+    }
+
+    private async Task SaveReading()
+    {
+        if (_modalMeter is null) return;
+
+        if (!decimal.TryParse(_newReadingInput, out var newReading))
+        {
+            _modalError = "Enter a valid number for the reading.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_updatedByInput))
+        {
+            _modalError = "Please select your name so we know who updated it.";
+            return;
+        }
+        if (newReading < _modalMeter.CurrentReading)
+        {
+            _modalError = $"New reading ({newReading}) is lower than the current reading ({_modalMeter.CurrentReading}). Double check the value.";
+            return;
+        }
+
+        _saving = true;
+        _modalError = null;
+        try
+        {
+            await Supabase.UpdateReadingAsync(_modalMeter, newReading, _updatedByInput.Trim());
+            _modalMeter = null;
+            await LoadMeters();
+        }
+        catch (Exception ex)
+        {
+            _modalError = "Failed to save: " + ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private static string FormatWhen(DateTime? when)
+    {
+        if (when is null) return "never";
+        var diff = DateTime.UtcNow - when.Value;
+        if (diff.TotalMinutes < 1) return "just now";
+        if (diff.TotalHours < 1) return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalDays < 1) return $"{(int)diff.TotalHours}h ago";
+        if (diff.TotalDays < 30) return $"{(int)diff.TotalDays}d ago";
+        return when.Value.ToLocalTime().ToString("dd MMM yyyy");
+    }
+}

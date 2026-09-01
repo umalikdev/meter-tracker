@@ -1,0 +1,80 @@
+@page "/add-meter"
+@inject SupabaseService Supabase
+@inject NavigationManager Nav
+
+<PageTitle>Add Meter</PageTitle>
+
+<a class="back-link" href="">← Back</a>
+<h2>Add a new meter</h2>
+
+<div class="form-card">
+    <div class="form-group">
+        <label>Meter name</label>
+        <input @bind="_name" placeholder="e.g. Main House, Basement, Shop" />
+    </div>
+
+    <div class="form-group">
+        <label>Last month's reading (starting point)</label>
+        <input type="number" step="any" @bind="_startingReading" placeholder="e.g. 1043" />
+        <div class="form-hint">This is the baseline — consumption will be calculated from here.</div>
+    </div>
+
+    <div class="form-group">
+        <label>Your name</label>
+        <select @bind="_addedBy">
+            <option value="">-- Select your name --</option>
+            @foreach (var n in FamilyMembers.Names)
+            {
+                <option value="@n">@n</option>
+            }
+        </select>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <div class="error-banner">@_error</div>
+    }
+
+    <div class="card-actions">
+        <button class="btn btn-primary" @onclick="Save" disabled="@_saving">@(_saving ? "Saving…" : "Add Meter")</button>
+        <button class="btn btn-outline" @onclick="@(() => Nav.NavigateTo(""))">Cancel</button>
+    </div>
+</div>
+
+@code {
+    private string _name = "";
+    private string _startingReading = "";
+    private string _addedBy = "";
+    private string? _error;
+    private bool _saving;
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(_name))
+        {
+            _error = "Please give the meter a name.";
+            return;
+        }
+        if (!decimal.TryParse(_startingReading, out var starting))
+        {
+            _error = "Enter a valid starting reading.";
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            await Supabase.AddMeterAsync(_name.Trim(), starting, string.IsNullOrWhiteSpace(_addedBy) ? null : _addedBy.Trim());
+            Nav.NavigateTo("");
+        }
+        catch (Exception ex)
+        {
+            _error = "Failed to save: " + ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}
